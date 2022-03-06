@@ -1,21 +1,22 @@
+import sys, os
+sys.path.append(os.getcwd())
 import torch
 import glob
-import os
 from torchvision import transforms
 import cv2
 from PIL import Image
 import pandas as pd
 import numpy as np
-from . import one_hot_dice
+import utils 
 import random
 import json
 import matplotlib.pyplot as plt
 
 
+
 class Cityscapes(torch.utils.data.Dataset):
     def __init__(self, image_path, label_path, info_path, scale, loss='dice', mode='train'):
         super().__init__()
-        np.random.seed(4)
         self.mode = mode
         self.image_list = glob.glob(os.path.join(image_path, '*.png'))
         self.image_list.sort()
@@ -56,7 +57,7 @@ class Cityscapes(torch.utils.data.Dataset):
         label = np.array(label)
 
         if self.loss == 'dice':
-            label = one_hot_dice(label, self.label_info).astype(np.uint8)
+            label = utils.one_hot_dice(label, self.label_info).astype(np.uint8)
 
             label = np.transpose(label, [2, 0, 1]).astype(np.float32)
             label = torch.from_numpy(label)
@@ -74,14 +75,13 @@ class Cityscapes(torch.utils.data.Dataset):
 
 
 if __name__ == '__main__':
-    from . import one_hot_dice
 
     data = Cityscapes('/content/drive/MyDrive/data/Cityscapes/images/',
                       '/content/drive/MyDrive/data/Cityscapes/labels/',
                       '/content/drive/MyDrive/data/Cityscapes/info.json',
                       (720, 960), loss='dice', mode='val')
-    tr,te=torch.utils.data.random_split(data,[round(0.8*len(data)),len(data)-round(0.8*len(data))])
-    print(tr,len(tr),type(tr))
+    tr, te = torch.utils.data.random_split(data, [round(0.8 * len(data)), len(data) - round(0.8 * len(data))])
+    print(tr, len(tr), type(tr))
     print(te, len(te), type(te))
 
     # from model.build_BiSeNet import BiSeNet

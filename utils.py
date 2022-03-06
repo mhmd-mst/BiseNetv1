@@ -9,6 +9,7 @@ import numbers
 import torchvision
 
 
+
 def poly_lr_scheduler(optimizer, init_lr, iter, lr_decay_iter=1,
                       max_iter=300, power=0.9):
     """Polynomial decay of learning rate
@@ -38,7 +39,8 @@ def label2train(label, label_info):
 
 
 def one_hot_dice(label, label_info):
-    # semantic map number of channels equal number of classes +1 for background and 1 for the pixel in the channel index of its class
+    # semantic map number of channels equal number of classes +1 for background and 1 for the pixel in the channel
+    # index of its class
     semantic_map = np.zeros((label.shape[0], label.shape[1], label_info['classes'] + 1))
     for i, l2t in enumerate(label_info['label2train']):
         if l2t[1] == 255:
