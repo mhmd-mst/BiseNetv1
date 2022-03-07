@@ -8,10 +8,12 @@ import cv2
 from PIL import Image
 import pandas as pd
 import numpy as np
-from utils import one_hot_dice, dataset_splitter
+import utils
 import random
 import json
 import matplotlib.pyplot as plt
+from utils import one_hot_dice, dataset_splitter
+
 
 
 class Cityscapes(torch.utils.data.Dataset):
@@ -68,7 +70,7 @@ class Cityscapes(torch.utils.data.Dataset):
         label = np.array(label)
 
         if self.loss == 'dice':
-            label = one_hot_dice(label, self.label_info).astype(np.uint8)
+            label = utils.one_hot_dice(label, self.label_info).astype(np.uint8)
 
             label = np.transpose(label, [2, 0, 1]).astype(np.float32)
             label = torch.from_numpy(label)
@@ -109,6 +111,14 @@ if __name__ == '__main__':
     #   print(type(i),i.shape,i.dtype)
     #   print(type(j),j.shape,j.dtype)
     #   break
+
+    # data = Cityscapes('/content/drive/MyDrive/data/Cityscapes/images/',
+    #                   '/content/drive/MyDrive/data/Cityscapes/labels/',
+    #                   '/content/drive/MyDrive/data/Cityscapes/info.json',
+    #                   (720, 960), loss='dice', mode='val')
+    # tr, te = torch.utils.data.random_split(data, [round(0.8 * len(data)), len(data) - round(0.8 * len(data))])
+    # print(tr, len(tr), type(tr))
+    # print(te, len(te), type(te))
     # from model.build_BiSeNet import BiSeNet
 
     # for i, (img, label) in enumerate(data):
