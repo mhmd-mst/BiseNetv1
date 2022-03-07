@@ -7,11 +7,12 @@ import torch
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
 import numpy as np
-from utils import poly_lr_scheduler
+from utils import poly_lr_scheduler, dataset_splitter
 from utils import reverse_one_hot, compute_global_accuracy, fast_hist, \
     per_class_iu
 from loss import DiceLoss
 import torch.cuda.amp as amp
+from dataset.Cityscapes import Cityscapes
 
 
 def val(args, model, dataloader):
@@ -22,6 +23,7 @@ def val(args, model, dataloader):
         precision_record = []
         hist = np.zeros((args.num_classes, args.num_classes))
         for i, (data, label) in enumerate(dataloader):
+
             label = label.type(torch.LongTensor)
             data = data.cuda()
             label = label.long().cuda()
@@ -45,7 +47,7 @@ def val(args, model, dataloader):
             # predict = colour_code_segmentation(np.array(predict), label_info)
             # label = colour_code_segmentation(np.array(label), label_info)
             precision_record.append(precision)
-        
+
         precision = np.mean(precision_record)
         # miou = np.mean(per_class_iu(hist))
         miou_list = per_class_iu(hist)[:-1]
@@ -79,22 +81,23 @@ def train(args, model, optimizer, dataloader_train, dataloader_val):
         tq.set_description('epoch %d, lr %f' % (epoch, lr))
         loss_record = []
         for i, (data, label) in enumerate(dataloader_train):
-            
+
             data = data.cuda()
             label = label.long().cuda()
+
             optimizer.zero_grad()
-            
+
             with amp.autocast():
                 output, output_sup1, output_sup2 = model(data)
                 loss1 = loss_func(output, label)
                 loss2 = loss_func(output_sup1, label)
                 loss3 = loss_func(output_sup2, label)
                 loss = loss1 + loss2 + loss3
-            
+
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
-            
+
             tq.update(args.batch_size)
             tq.set_postfix(loss='%.6f' % loss)
             step += 1
@@ -105,17 +108,17 @@ def train(args, model, optimizer, dataloader_train, dataloader_val):
         writer.add_scalar('epoch/loss_epoch_train', float(loss_train_mean), epoch)
         print('loss for train : %f' % (loss_train_mean))
         if epoch % args.checkpoint_step == 0 and epoch != 0:
-            import os
+            # import os
             if not os.path.isdir(args.save_model_path):
                 os.mkdir(args.save_model_path)
             torch.save(model.module.state_dict(),
                        os.path.join(args.save_model_path, 'latest_dice_loss.pth'))
 
-        if epoch % args.validation_step == 0 and epoch != 0:
+        if (epoch+1) % args.validation_step == 0 or epoch == 0:
             precision, miou = val(args, model, dataloader_val)
             if miou > max_miou:
                 max_miou = miou
-                import os 
+                # import os
                 os.makedirs(args.save_model_path, exist_ok=True)
                 torch.save(model.module.state_dict(),
                            os.path.join(args.save_model_path, 'best_dice_loss.pth'))
@@ -131,8 +134,8 @@ def main(params):
     parser.add_argument('--checkpoint_step', type=int, default=10, help='How often to save checkpoints (epochs)')
     parser.add_argument('--validation_step', type=int, default=10, help='How often to perform validation (epochs)')
     parser.add_argument('--dataset', type=str, default="Cityscapes", help='Dataset you are using.')
-    parser.add_argument('--crop_height', type=int, default=720, help='Height of cropped/resized input image to network')
-    parser.add_argument('--crop_width', type=int, default=960, help='Width of cropped/resized input image to network')
+    parser.add_argument('--crop_height', type=int, default=680, help='Height of cropped/resized input image to network')
+    parser.add_argument('--crop_width', type=int, default=680, help='Width of cropped/resized input image to network')
     parser.add_argument('--batch_size', type=int, default=32, help='Number of images in each batch')
     parser.add_argument('--context_path', type=str, default="resnet101",
                         help='The context path model you are using, resnet18, resnet101.')
@@ -145,20 +148,24 @@ def main(params):
     parser.add_argument('--pretrained_model_path', type=str, default=None, help='path to pretrained model')
     parser.add_argument('--save_model_path', type=str, default=None, help='path to save model')
     parser.add_argument('--optimizer', type=str, default='rmsprop', help='optimizer, support rmsprop, sgd, adam')
-    parser.add_argument('--loss', type=str, default='dice', help='loss function, dice or crossentropy')
+    parser.add_argument('--loss', type=str, default='crossentropy', help='loss function, dice or crossentropy')
 
     args = parser.parse_args(params)
 
     # create dataset and dataloader
-    train_path = [os.path.join(args.data, 'train'), os.path.join(args.data, 'val')]
-    train_label_path = [os.path.join(args.data, 'train_labels'), os.path.join(args.data, 'val_labels')]
-    test_path = os.path.join(args.data, 'test')
-    test_label_path = os.path.join(args.data, 'test_labels')
-    csv_path = os.path.join(args.data, 'class_dict.csv')
-    
+    images_path = os.path.join(args.data, 'images/')
+    label_path = os.path.join(args.data, 'labels/')
+    info_path = os.path.join(args.data, 'info.json')
+    train_indices, test_indices = dataset_splitter(images_path)
+    dataset_train = Cityscapes(images_path, label_path, info_path, scale=(args.crop_height, args.crop_width),
+                               train_indices=train_indices, test_indices=test_indices, loss=args.loss, mode='train')
+    dataset_val = Cityscapes(images_path, label_path, info_path, scale=(args.crop_height, args.crop_width),
+                             train_indices=train_indices, test_indices=test_indices, loss=args.loss, mode='val')
+
     # Define here your dataloaders
-    # dataloader_train
-    # dataloader_val
+    dataloader_train = DataLoader(dataset_train,batch_size=args.batch_size,shuffle=True,num_workers=args.num_workers,
+                                  drop_last=True)
+    dataloader_val = DataLoader(dataset_val,batch_size=1,shuffle=True,num_workers=args.num_workers)
 
     # build model
     os.environ['CUDA_VISIBLE_DEVICES'] = args.cuda
@@ -185,21 +192,21 @@ def main(params):
 
     # train
     train(args, model, optimizer, dataloader_train, dataloader_val)
-
+    # val(args, model, dataloader_val)
     # val(args, model, dataloader_val, csv_path)
 
 
 if __name__ == '__main__':
     params = [
-        '--num_epochs', '1000',
+        '--num_epochs', '50',
         '--learning_rate', '2.5e-2',
-        '--data', './data/...',
+        '--data', '/content/drive/MyDrive/data/Cityscapes/',
         '--num_workers', '8',
-        '--num_classes', '12',
+        '--num_classes', '20',
         '--cuda', '0',
-        '--batch_size', '8',
-        '--save_model_path', './checkpoints_18_sgd',
-        '--context_path', 'resnet18',  # set resnet18 or resnet101, only support resnet18 and resnet101
+        '--batch_size', '4',
+        '--save_model_path', './checkpoints_101_sgd',
+        '--context_path', 'resnet101',  # set resnet18 or resnet101, only support resnet18 and resnet101
         '--optimizer', 'sgd',
 
     ]
