@@ -7,7 +7,7 @@ import torch
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
 import numpy as np
-from utils import poly_lr_scheduler, dataset_splitter
+from utils import poly_lr_scheduler
 from utils import reverse_one_hot, compute_global_accuracy, fast_hist, \
     per_class_iu
 from loss import DiceLoss
@@ -49,17 +49,11 @@ def val(args, model, dataloader):
             precision_record.append(precision)
 
         precision = np.mean(precision_record)
-        # miou = np.mean(per_class_iu(hist))
-        miou_list = per_class_iu(hist)[:-1]
-        # miou_dict, miou = cal_miou(miou_list, csv_path)
+        miou_list = per_class_iu(hist)
         miou = np.mean(miou_list)
         print('precision per pixel for test: %.3f' % precision)
         print('mIoU for validation: %.3f' % miou)
-        # miou_str = ''
-        # for key in miou_dict:
-        #     miou_str += '{}:{},\n'.format(key, miou_dict[key])
-        # print('mIoU for each class:')
-        # print(miou_str)
+        print(f'mIoU per class: {miou_list}')
         return precision, miou
 
 
@@ -71,7 +65,7 @@ def train(args, model, optimizer, dataloader_train, dataloader_val):
     if args.loss == 'dice':
         loss_func = DiceLoss()
     elif args.loss == 'crossentropy':
-        loss_func = torch.nn.CrossEntropyLoss()
+        loss_func = torch.nn.CrossEntropyLoss(ignore_index=255)
     max_miou = 0
     step = 0
     for epoch in range(args.num_epochs):
@@ -81,7 +75,6 @@ def train(args, model, optimizer, dataloader_train, dataloader_val):
         tq.set_description('epoch %d, lr %f' % (epoch, lr))
         loss_record = []
         for i, (data, label) in enumerate(dataloader_train):
-
             data = data.cuda()
             label = label.long().cuda()
 
@@ -114,7 +107,7 @@ def train(args, model, optimizer, dataloader_train, dataloader_val):
             torch.save(model.module.state_dict(),
                        os.path.join(args.save_model_path, 'latest_dice_loss.pth'))
 
-        if (epoch+1) % args.validation_step == 0 or epoch == 0:
+        if (epoch + 1) % args.validation_step == 0 or epoch == 0:
             precision, miou = val(args, model, dataloader_val)
             if miou > max_miou:
                 max_miou = miou
@@ -134,9 +127,9 @@ def main(params):
     parser.add_argument('--checkpoint_step', type=int, default=10, help='How often to save checkpoints (epochs)')
     parser.add_argument('--validation_step', type=int, default=10, help='How often to perform validation (epochs)')
     parser.add_argument('--dataset', type=str, default="Cityscapes", help='Dataset you are using.')
-    parser.add_argument('--crop_height', type=int, default=680, help='Height of cropped/resized input image to network')
-    parser.add_argument('--crop_width', type=int, default=680, help='Width of cropped/resized input image to network')
-    parser.add_argument('--batch_size', type=int, default=32, help='Number of images in each batch')
+    parser.add_argument('--crop_height', type=int, default=512, help='Height of cropped/resized input image to network')
+    parser.add_argument('--crop_width', type=int, default=1024, help='Width of cropped/resized input image to network')
+    parser.add_argument('--batch_size', type=int, default=2, help='Number of images in each batch')
     parser.add_argument('--context_path', type=str, default="resnet101",
                         help='The context path model you are using, resnet18, resnet101.')
     parser.add_argument('--learning_rate', type=float, default=0.01, help='learning rate used for train')
@@ -156,16 +149,17 @@ def main(params):
     images_path = os.path.join(args.data, 'images/')
     label_path = os.path.join(args.data, 'labels/')
     info_path = os.path.join(args.data, 'info.json')
-    train_indices, test_indices = dataset_splitter(images_path)
+    train_txt = os.path.join(args.data, "train.txt")
+    val_txt = os.path.join(args.data, "val.txt")
     dataset_train = Cityscapes(images_path, label_path, info_path, scale=(args.crop_height, args.crop_width),
-                               train_indices=train_indices, test_indices=test_indices, loss=args.loss, mode='train')
+                               image_txt=train_txt, loss=args.loss, mode='train')
     dataset_val = Cityscapes(images_path, label_path, info_path, scale=(args.crop_height, args.crop_width),
-                             train_indices=train_indices, test_indices=test_indices, loss=args.loss, mode='val')
+                             image_txt=val_txt, loss=args.loss, mode='val')
 
     # Define here your dataloaders
-    dataloader_train = DataLoader(dataset_train,batch_size=args.batch_size,shuffle=True,num_workers=args.num_workers,
+    dataloader_train = DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers,
                                   drop_last=True)
-    dataloader_val = DataLoader(dataset_val,batch_size=1,shuffle=True,num_workers=args.num_workers)
+    dataloader_val = DataLoader(dataset_val, batch_size=1, shuffle=True, num_workers=args.num_workers)
 
     # build model
     os.environ['CUDA_VISIBLE_DEVICES'] = args.cuda
@@ -202,7 +196,7 @@ if __name__ == '__main__':
         '--learning_rate', '2.5e-2',
         '--data', '/content/drive/MyDrive/data/Cityscapes/',
         '--num_workers', '8',
-        '--num_classes', '20',
+        '--num_classes', '19',
         '--cuda', '0',
         '--batch_size', '4',
         '--save_model_path', './checkpoints_101_sgd',

@@ -10,13 +10,7 @@ import torchvision
 import glob
 import os
 
-def dataset_splitter(image_path):
-    image_list = glob.glob(os.path.join(image_path, '*.png'))
-    rng=list(range(len(image_list)))
-    random.shuffle(rng)
-    train_indices=rng[:round(0.7*len(image_list))]
-    test_indices=rng[round(0.7*len(image_list)):]
-    return train_indices,test_indices
+
 
 
 def poly_lr_scheduler(optimizer, init_lr, iter, lr_decay_iter=1,
